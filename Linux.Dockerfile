@@ -7,4 +7,4 @@ RUN make
 FROM alpine AS final
 WORKDIR /usr/bin/passcheck
 COPY --from=build /src/bin .
-CMD ["/bin/bash"]
+CMD ["/bin/sh"]
