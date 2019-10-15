@@ -1,11 +1,19 @@
-GOPATH=$(shell pwd)/vendor:$(shell pwd)
-GOBIN=$(shell pwd)/bin
-GOFILES=$(wildcard /src*.go)
-GONAME=passcheck
+GOOS=windows
+
+ifeq ($(OS),Windows_NT)
+	BINARY=passcheck.exe
+else
+	BINARY=passcheck
+endif
+
+all: get build
 
 build:
-	@echo "Building $(GOFILES) to $(GOBIN)"
-	@GOPATH=$(GOPATH) GOBIN=$(GOBIN) go build -o bin/$(GONAME) $(GOFILES)
+	go build -o bin/$(BINARY) src/passcheck.go
 
-install:
-	@GOPATH=
+run:
+	go run src/passcheck.go
+
+get:
+	go get github.com/syndtr/goleveldb/leveldb
+	go get github.com/howeyc/gopass
