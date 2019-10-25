@@ -1,9 +1,9 @@
-GOOS=windows
-
 ifeq ($(OS),Windows_NT)
 	BINARY=passcheck.exe
+	GOOS=windows
 else
 	BINARY=passcheck
+	GOOS=linux
 endif
 
 all: get build

@@ -4,12 +4,106 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha512"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"strings"
 
 	"github.com/howeyc/gopass"
 	"github.com/syndtr/goleveldb/leveldb"
 )
+
+type ParsedCommand struct {
+	Name    string
+	Flags   []string
+	Args    []string
+	Handler CommandHandler
+}
+
+type CommandDescription struct {
+	Name          string
+	MinArgCount   int
+	PossibleFlags []string
+	Handler       CommandHandler
+	Help          string
+}
+
+func (c *CommandDescription) Print() {
+	fmt.Println(c.Help)
+}
+
+// CommandHandler function type
+type CommandHandler func(c *ParsedCommand)
+
+var commands map[string]CommandDescription
+
+func InitCommands() {
+	commands = map[string]CommandDescription{
+		"add":    {"add", 2, []string{"--f"}, HandleAdd, "add [context] [username] --f(overwrite)"},
+		"check":  {"check", 2, []string{}, HandleCheck, "check [context] [usernane]"},
+		"list":   {"list", 0, []string{"--a"}, HandleList, "list ([context]) --a(all contexts + usernames)"},
+		"help":   {"help", 0, []string{}, HandleHelp, "help (lists commands)"},
+		"remove": {"remove", 1, []string{"--f"}, HandleRemove, "remove [context] --f ([username])"},
+	}
+}
+
+func Contains(s []string, str string) bool {
+	for _, elem := range s {
+		if elem == str {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (p *ParsedCommand) FitsRules() (bool, error) {
+	// check command name
+	rules, ok := commands[p.Name]
+	if !ok {
+		return false, fmt.Errorf("Unknown command [%s]", p.Name)
+	}
+
+	// check args
+	if len(p.Args) < rules.MinArgCount {
+		return false, errors.New("Insufficient arguments")
+	}
+
+	// check flags
+	for _, flag := range p.Flags {
+		if !Contains(rules.PossibleFlags, flag) {
+			return false, fmt.Errorf("Unknown flag %s", flag)
+		}
+	}
+
+	p.Handler = rules.Handler
+
+	return true, nil
+}
+
+func ParseCommandLineArgs(args []string) (*ParsedCommand, error) {
+	if len(args) < 1 {
+		return nil, errors.New("No command specified")
+	}
+
+	command := ParsedCommand{}
+	command.Name = args[0]
+	command.Handler = nil
+
+	for i := 1; i < len(args); i++ {
+		value := args[i]
+
+		if strings.HasPrefix(value, "--") {
+			command.Flags = append(command.Flags, value)
+			continue
+		}
+
+		command.Args = append(command.Args, value)
+	}
+
+	return &command, nil
+}
 
 func HashEqual(hash1, hash2 []byte) bool {
 	compare := bytes.Compare(hash1, hash2)
@@ -39,23 +133,8 @@ func GetAnswer(message string) bool {
 
 func GetPassword() ([]byte, error) {
 	fmt.Println("Enter password:")
-	password, err := gopass.GetPasswd()
+	password, err := gopass.GetPasswdMasked()
 	return password, err
-}
-
-func GetUsername() (string, error) {
-	fmt.Println("Enter username:")
-	var username string
-	_, err := fmt.Scanf("%s\n", &username)
-	return username, err
-}
-
-// GetContext gets the context name from Stdin
-func GetContext() (string, error) {
-	fmt.Println("Enter context name:")
-	var contextName string
-	_, err := fmt.Scanf("%s\n", &contextName)
-	return contextName, err
 }
 
 func HashElements(context []byte, username []byte, password []byte) [64]byte {
@@ -63,20 +142,106 @@ func HashElements(context []byte, username []byte, password []byte) [64]byte {
 	return sha512.Sum512(elements)
 }
 
-func HandleAdd() {
-	// Ask for passcheck context (like Google, Facebook, Gmail,...)
-	contextName, err := GetContext()
+func GetContexts() ([]string, error) {
+	root := "./data"
+
+	if ok, _ := Exists(root); !ok {
+		return nil, nil
+	}
+
+	var directories []string
+
+	files, err := ioutil.ReadDir(root)
 	if err != nil {
-		fmt.Println(err)
+		return nil, err
+	}
+
+	for _, file := range files {
+		if file.IsDir() {
+			directories = append(directories, file.Name())
+		}
+	}
+
+	return directories, nil
+}
+
+func GetUserNames(context string) ([]string, error) {
+	dbDir := fmt.Sprintf("./data/%s", context)
+	contextExists, _ := Exists(dbDir)
+	if !contextExists {
+		return nil, fmt.Errorf("Context:[%s] does not exist.\n", context)
+	}
+
+	var usernames []string
+
+	db, err := leveldb.OpenFile(dbDir, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	iter := db.NewIterator(nil, nil)
+	for iter.Next() {
+		err = iter.Error()
+		if err != nil {
+			return nil, err
+		}
+
+		key := iter.Key()
+		usernames = append(usernames, string(key))
+	}
+	iter.Release()
+
+	return usernames, nil
+}
+
+func HandleList(p *ParsedCommand) {
+	// No context specified
+	if len(p.Args) < 1 {
+		contexts, err := GetContexts()
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		for _, context := range contexts {
+			fmt.Println(context)
+
+			if !Contains(p.Flags, "--a") {
+				continue
+			}
+
+			// Also print usernames
+			usernames, err := GetUserNames(context)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			for _, username := range usernames {
+				fmt.Printf("\t%s\n", username)
+			}
+		}
+
 		return
 	}
 
-	// Ask for username
-	username, err := GetUsername()
+	context := p.Args[0]
+	usernames, err := GetUserNames(context)
 	if err != nil {
 		fmt.Println(err)
-		return
 	}
+
+	for _, username := range usernames {
+		fmt.Println(username)
+	}
+}
+
+func HandleHelp(p *ParsedCommand) {
+	PrintCommands()
+}
+
+func HandleAdd(p *ParsedCommand) {
+	contextName := p.Args[0]
+	username := p.Args[1]
 
 	// Ask for password safely
 	password, err := GetPassword()
@@ -100,9 +265,11 @@ func HandleAdd() {
 	}
 
 	if exists {
-		answer := GetAnswer("An entry with that username already exists in the specified context. Continue overwriting?")
-		if !answer {
-			return
+		if !Contains(p.Flags, "--f") {
+			answer := GetAnswer("An entry with that username already exists in the specified context. Continue overwriting?")
+			if !answer {
+				return
+			}
 		}
 	}
 
@@ -116,12 +283,8 @@ func HandleAdd() {
 	fmt.Printf("Added entry for context:[%s], username:[%s]\n", contextName, username)
 }
 
-func HandleCheck() {
-	contextName, err := GetContext()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+func HandleRemove(p *ParsedCommand) {
+	contextName := p.Args[0]
 
 	dbDir := fmt.Sprintf("./data/%s", contextName)
 	contextExists, _ := Exists(dbDir)
@@ -130,9 +293,41 @@ func HandleCheck() {
 		return
 	}
 
-	username, err := GetUsername()
-	if err != nil {
-		fmt.Println(err)
+	// No username specified, so we delete whole context
+	if len(p.Args) < 2 {
+		if !Contains(p.Flags, "--f") {
+			answer := GetAnswer("Continue to remove the context and all of it's entries?")
+			if !answer {
+				return
+			}
+		}
+
+		// Retreive all keys
+		// var keys [][]byte
+		// iter := db.NewIterator(nil, nil)
+		// for iter.Next() {
+		// 	err = iter.Error()
+		// 	if err != nil {
+		// 		fmt.Println(err)
+		// 		return
+		// 	}
+
+		// 	key := iter.Key()
+		// 	keys = append(keys, key)
+		// }
+		// iter.Release()
+
+		// // Delete all keys
+		// for _, key := range keys {
+		// 	db.Delete(key, nil)
+		// }
+
+		err := os.RemoveAll(dbDir)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
 		return
 	}
 
@@ -141,6 +336,42 @@ func HandleCheck() {
 		fmt.Println(err)
 		return
 	}
+
+	defer db.Close()
+
+	username := p.Args[1]
+	usernameBin := []byte(username)
+	exists, err := db.Has(usernameBin, nil)
+	if !exists {
+		fmt.Printf("Could not delete entry for context:[%s], username:[%s]. Entry does not exist.\n", contextName, username)
+		return
+	}
+
+	err = db.Delete(usernameBin, nil)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Printf("Successfully removed entry for context:[%s], username:[%s]\n", contextName, username)
+}
+
+func HandleCheck(p *ParsedCommand) {
+	contextName := p.Args[0]
+
+	dbDir := fmt.Sprintf("./data/%s", contextName)
+	contextExists, _ := Exists(dbDir)
+	if !contextExists {
+		fmt.Printf("Context:[%s] does not exist.\n", contextName)
+		return
+	}
+
+	username := p.Args[1]
+	db, err := leveldb.OpenFile(dbDir, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer db.Close()
 
 	exists, err := db.Has([]byte(username), nil)
 	if err != nil {
@@ -177,35 +408,26 @@ func HandleCheck() {
 }
 
 func PrintCommands() {
-	fmt.Println("List of passcheck commands:")
-	fmt.Println("add\t\tAdd a new entry.")
-	fmt.Println("check\t\tCheck a password against an entry.")
-}
-
-// CommandHandler function type
-type CommandHandler func()
-
-var commands = map[string]CommandHandler{
-	"add":   HandleAdd,
-	"check": HandleCheck,
+	for _, desc := range commands {
+		desc.Print()
+	}
 }
 
 func main() {
+	InitCommands()
 	args := os.Args[1:]
 
-	if len(args) < 1 {
-		fmt.Println("No command specified.")
-		PrintCommands()
+	command, err := ParseCommandLineArgs(args)
+	if err != nil {
+		fmt.Println(err)
 		return
 	}
 
-	command := args[0]
-
-	handler, ok := commands[command]
-	if !ok {
-		fmt.Println("Command does not exist.")
-		PrintCommands()
+	ok, err := command.FitsRules()
+	if !ok && err != nil {
+		fmt.Println(err)
 		return
 	}
-	handler()
+
+	command.Handler(command)
 }

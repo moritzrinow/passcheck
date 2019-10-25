@@ -1,6 +1,7 @@
 FROM stefanscherer/chocolatey AS build
 LABEL maintainer="Moritz Rinow <mrinow.dev@gmail.com>"
 RUN choco install -y make
+RUN choco install -y git
 RUN choco install -y golang
 WORKDIR /src
 COPY . .

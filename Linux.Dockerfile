@@ -7,4 +7,6 @@ RUN make
 FROM alpine AS final
 WORKDIR /usr/bin/passcheck
 COPY --from=build /src/bin .
-CMD ["/bin/sh"]
+RUN apk add --no-cache bash
+RUN echo "export PATH=$PATH:." >> ~/.bashrc
+CMD ["/bin/bash"]
