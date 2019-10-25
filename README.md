@@ -32,3 +32,4 @@ make
 ### check - Check against an entry
 ### list - List contexts (and) usernames
 ### remove - Remove an entry or context
+### help - List commands+syntax
