@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"bufio"
 	"bytes"
 	"crypto/sha512"
@@ -143,7 +144,7 @@ func HashElements(context []byte, username []byte, password []byte) [64]byte {
 }
 
 func GetContexts() ([]string, error) {
-	root := "./data"
+	root := dataDir
 
 	if ok, _ := Exists(root); !ok {
 		return nil, nil
@@ -166,10 +167,10 @@ func GetContexts() ([]string, error) {
 }
 
 func GetUserNames(context string) ([]string, error) {
-	dbDir := fmt.Sprintf("./data/%s", context)
+	dbDir := fmt.Sprintf("%s/%s", dataDir, context)
 	contextExists, _ := Exists(dbDir)
 	if !contextExists {
-		return nil, fmt.Errorf("Context:[%s] does not exist.\n", context)
+		return nil, fmt.Errorf("Context:[%s] does not exist", context)
 	}
 
 	var usernames []string
@@ -217,7 +218,7 @@ func HandleList(p *ParsedCommand) {
 			}
 
 			for _, username := range usernames {
-				fmt.Printf("\t%s\n", username)
+				fmt.Printf("-->%s\n", username)
 			}
 		}
 
@@ -250,7 +251,7 @@ func HandleAdd(p *ParsedCommand) {
 		return
 	}
 
-	dbPath := fmt.Sprintf("./data/%s", contextName)
+	dbPath := fmt.Sprintf("%s/%s", dataDir, contextName)
 	db, err := leveldb.OpenFile(dbPath, nil)
 	if err != nil {
 		fmt.Println(err)
@@ -286,7 +287,7 @@ func HandleAdd(p *ParsedCommand) {
 func HandleRemove(p *ParsedCommand) {
 	contextName := p.Args[0]
 
-	dbDir := fmt.Sprintf("./data/%s", contextName)
+	dbDir := fmt.Sprintf("%s/%s", dataDir, contextName)
 	contextExists, _ := Exists(dbDir)
 	if !contextExists {
 		fmt.Printf("Context:[%s] does not exist.\n", contextName)
@@ -301,26 +302,6 @@ func HandleRemove(p *ParsedCommand) {
 				return
 			}
 		}
-
-		// Retreive all keys
-		// var keys [][]byte
-		// iter := db.NewIterator(nil, nil)
-		// for iter.Next() {
-		// 	err = iter.Error()
-		// 	if err != nil {
-		// 		fmt.Println(err)
-		// 		return
-		// 	}
-
-		// 	key := iter.Key()
-		// 	keys = append(keys, key)
-		// }
-		// iter.Release()
-
-		// // Delete all keys
-		// for _, key := range keys {
-		// 	db.Delete(key, nil)
-		// }
 
 		err := os.RemoveAll(dbDir)
 		if err != nil {
@@ -358,7 +339,7 @@ func HandleRemove(p *ParsedCommand) {
 func HandleCheck(p *ParsedCommand) {
 	contextName := p.Args[0]
 
-	dbDir := fmt.Sprintf("./data/%s", contextName)
+	dbDir := fmt.Sprintf("%s/%s", dataDir, contextName)
 	contextExists, _ := Exists(dbDir)
 	if !contextExists {
 		fmt.Printf("Context:[%s] does not exist.\n", contextName)
@@ -413,13 +394,29 @@ func PrintCommands() {
 	}
 }
 
-func main() {
+var dataDir string
+
+func Init() {
 	InitCommands()
+
+	switch runtime.GOOS {
+	case "windows":
+		dataDir = "C:\\ProgramData\\passcheck"
+	case "linux":
+		dataDir = "/var/lib/passcheck"
+	default:
+		dataDir = "./"
+	}
+}
+
+func main() {
+	Init()
 	args := os.Args[1:]
 
 	command, err := ParseCommandLineArgs(args)
 	if err != nil {
 		fmt.Println(err)
+		PrintCommands()
 		return
 	}
 
