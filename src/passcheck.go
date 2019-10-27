@@ -328,6 +328,13 @@ func HandleRemove(p *ParsedCommand) {
 		return
 	}
 
+	if !Contains(p.Flags, "--f") {
+		prompt := GetAnswer("Continue to remove entry?")
+		if !prompt {
+			return
+		}
+	}
+
 	err = db.Delete(usernameBin, nil)
 	if err != nil {
 		fmt.Println(err)
