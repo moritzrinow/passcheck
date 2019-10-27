@@ -52,7 +52,7 @@ Prints "CORRECT" if the passwords (hashes) matched or "INCORRECT" if invalid and
 ### Listing contexts & entries
 
 #### passcheck list ([context]) --a
-If context specified, it lists all usernames of the given contexts. If not it lists all contexts.
+If context specified, it lists all usernames of the given context. If not it lists all contexts.
 Specify the --a flag to retreive all contexts and their usernames.
 
 ### Removing contexts & entries
