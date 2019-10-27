@@ -41,7 +41,7 @@ make
 
 #### passcheck add [context] [username] --f
 #### -> Enter password
-The -f flag forces an update if that entry already exists.
+The --f flag forces an update if that entry already exists.
 
 ### Checking credentials
 
